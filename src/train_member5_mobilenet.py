@@ -1,17 +1,29 @@
 import os
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, models, transforms
 from torch.utils.data import DataLoader
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 
 DATA_DIR = os.path.join("data", "dataset")
 BATCH_SIZE = 16
 EPOCHS = 5
 LEARNING_RATE = 0.001
 
-data_transforms = transforms.Compose([
+# Data Augmentation for Training
+train_transforms = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(degrees=15),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# Clean Transforms for Validation
+val_transforms = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -20,6 +32,8 @@ data_transforms = transforms.Compose([
 def evaluate(model, loader, device):
     model.eval()
     all_preds, all_labels = [], []
+    
+    start_time = time.time()
     with torch.no_grad():
         for inputs, labels in loader:
             inputs, labels = inputs.to(device), labels.to(device)
@@ -27,29 +41,63 @@ def evaluate(model, loader, device):
             _, preds = torch.max(outputs, 1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            
+    total_time_ms = (time.time() - start_time) * 1000
+    avg_latency = total_time_ms / len(loader.dataset)
+
     acc = accuracy_score(all_labels, all_preds)
-    f1 = f1_score(all_labels, all_preds, average='weighted')
-    return acc, f1
+    f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
+    precision = precision_score(all_labels, all_preds, average='weighted', zero_division=0)
+    recall = recall_score(all_labels, all_preds, average='weighted', zero_division=0)
+    cm = confusion_matrix(all_labels, all_preds)
+
+    return acc, f1, precision, recall, cm, avg_latency
 
 def main():
-    dataset = datasets.ImageFolder(root=DATA_DIR, transform=data_transforms)
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    if not os.path.exists(DATA_DIR):
+        print(f"Error: Dataset directory '{DATA_DIR}' not found!")
+        return
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    full_dataset = datasets.ImageFolder(root=DATA_DIR)
+    
+    train_size = int(0.8 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    
+    torch.manual_seed(42)
+    train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
 
-    num_classes = len(dataset.classes)
+    # Apply specific transforms to train and val splits
+    train_dataset.dataset.transform = train_transforms
+    val_dataset.dataset.transform = val_transforms
+
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+
+    num_classes = len(full_dataset.classes)
+    
+    # --- MODEL CHOICE (Uncomment your model) ---
+    # MobileNetV2 (Tasmiya):
     model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
-    model.classifier[1] = nn.Linear(model.last_channel, num_classes)
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
+    
+    # EfficientNet-B0 (Sushmita):
+    # model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+    # model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
+
+    # Swin Transformer (Sneha):
+    # model = models.swin_t(weights=models.Swin_T_Weights.DEFAULT)
+    # model.head = nn.Linear(model.head.in_features, num_classes)
+
+    # DenseNet-121 (Bharati):
+    # model = models.densenet121(weights=models.DenseNet121_Weights.DEFAULT)
+    # model.classifier = nn.Linear(model.classifier.in_features, num_classes)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    print("Starting training on MobileNet...")
+    print(f"Starting training using device: {device}...")
     for epoch in range(EPOCHS):
         model.train()
         running_loss = 0.0
@@ -65,10 +113,19 @@ def main():
         epoch_loss = running_loss / train_size
         print(f"Epoch {epoch+1}/{EPOCHS} - Loss: {epoch_loss:.4f}")
 
-    acc, f1 = evaluate(model, val_loader, device)
-    print("\n" + "="*40)
-    print(f"MobileNet Validation Accuracy: {acc * 100:.2f}% | F1-Score: {f1:.4f}")
-    print("="*40)
+    acc, f1, precision, recall, cm, latency = evaluate(model, val_loader, device)
+    
+    print("\n" + "="*50)
+    print("FINAL EVALUATION METRICS")
+    print("="*50)
+    print(f"Accuracy:        {acc * 100:.2f}%")
+    print(f"F1-Score:        {f1:.4f}")
+    print(f"Precision:       {precision:.4f}")
+    print(f"Recall:          {recall:.4f}")
+    print(f"Latency:         {latency:.2f} ms/image")
+    print("\nConfusion Matrix:")
+    print(cm)
+    print("="*50)
 
 if __name__ == "__main__":
     main()
