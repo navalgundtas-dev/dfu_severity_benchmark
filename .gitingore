@@ -1,0 +1,36 @@
+# Byte-compiled / Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Large Image Data (Exclude raw datasets except gitkeep)
+data/*
+!data/.gitkeep
+
+# Trained Model Weights & Outputs (DO NOT PUSH LARGE HEAVY WEIGHTS)
+models/*
+!models/.gitkeep
+*.pth
+*.pt
+*.pkl
+*.h5
+*.onnx
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment / VS Code settings & OS hidden files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+reports/*.png
